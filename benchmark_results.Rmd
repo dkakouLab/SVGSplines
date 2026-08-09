@@ -18,7 +18,7 @@ library(ggplot2)
 
 # Simulation results SVGBench synthetic dataset
 ```{r}
-results <- readRDS("pvalues_of_9_synthetic_dataset.rds")
+results <- readRDS("C:/Users/kakou/OneDrive - University of Iowa/BIOSTATISTICS/Disertation/pvalues_of_9_synthetic_dataset.rds")
 
 source("benchmark_functions.R")
 
@@ -68,8 +68,8 @@ p = ggplot(perf_curve,
   
     facet_wrap(~Method, ncol = 4) +
 
-    geom_vline(aes(xintercept = 0.01, linetype = "0.01"), size = 0.5) +
-    geom_vline(aes(xintercept = 0.05, linetype = "0.05"), size = 0.5) +
+    geom_vline(aes(xintercept = 0.01, linetype = "0.01"), linewidth = 0.5) +
+    geom_vline(aes(xintercept = 0.05, linetype = "0.05"), linewidth = 0.5) +
 
     scale_linetype_manual(values = c("0.01" = "dashed",
                                      "0.05" = "dotted"),
@@ -284,12 +284,10 @@ p.final <-
 
 p.final
 
-ggsave(
-  "time_summary.pdf",
-  p.final,
- #width = 5,
- #height = 7   # instead of 7
-)
+# ggsave(
+#   "time_summary.pdf",
+#   p.final,
+# )
 
 ```
 
@@ -389,15 +387,12 @@ p.finalm <-
   plot_layout()
 
 
-ggsave(
-  "memory_summary.pdf",
-  p.finalm,
- #width = 5,
- #height = 7   # instead of 7
-)
 p.finalm
 
-
+# ggsave(
+#   "memory_summary.pdf",
+#   p.finalm,
+# )
 
 ```
 
@@ -601,6 +596,7 @@ for(nm in names(all_results)){
 ## Venn Diagram
 
 ```{r}
+library(ggVennDiagram)
 
 for(nm in names(all_results)){
   print(plotVenn(all_results[[nm]], nm))
@@ -615,17 +611,17 @@ for(nm in names(all_results)){
 ```{r}
 library(pheatmap)
 
-pdf("Jaccard_heatmaps.pdf", width = 6, height = 6)
+#pdf("Jaccard_heatmaps.pdf", width = 6, height = 6)
 
 for(nm in names(results))
   plotJaccard(results[[nm]], nm)
 
-dev.off()
+#dev.off()
 
 
 ```
 
-## 
+## Scatter plot  of -log10(p) for True SVGs
 
 ```{r}
 
@@ -668,6 +664,8 @@ for(nm in names(results)){
 dev.off()
 ```
 
+
+## Scatter plot  of -log10(p) for True NON-SVGs
 
 
 ```{r}

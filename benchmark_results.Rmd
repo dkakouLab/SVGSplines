@@ -1,0 +1,710 @@
+---
+title: "Benchmarking results"
+author: "Daniel Israel Kakou"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+```
+
+
+# Simulation results SVGBench synthetic dataset
+```{r}
+results <- readRDS("pvalues_of_9_synthetic_dataset.rds")
+
+source("benchmark_functions.R")
+
+methods <- c("p_splines",
+             "p_spark_wald",
+             "p_spark_score",
+             "p_SPARKX")
+
+perf_curve <- do.call(rbind,
+
+    lapply(names(results), function(ds){
+
+        do.call(rbind,
+
+            lapply(methods, function(m){
+
+                tmp <- compute_tpr_fdr(results[[ds]], m)
+
+                tmp$Dataset <- ds
+                tmp$Method <- m
+
+                tmp
+
+            }))
+
+    }))
+
+perf_curve$DatasetID <- factor(rep(1:9, each = 12))
+
+method_names <- c(
+  "p_splines"     = "svg.spline",
+  "p_spark_wald"  = "spark.x(wald)",
+  "p_spark_score" = "spark.x(score)",
+  "p_SPARKX"      = "Spark-X"
+)
+
+perf_curve$Method <- factor(perf_curve$Method,
+                            levels = names(method_names),
+                            labels = method_names)
+
+
+p = ggplot(perf_curve,
+       aes(FDR, TPR, color = Cutoff)) +
+
+    geom_point(size = 3) +
+  geom_text(aes(label = DatasetID), color = "black", size = 2,vjust = 0.3) +
+  
+    facet_wrap(~Method, ncol = 4) +
+
+    geom_vline(aes(xintercept = 0.01, linetype = "0.01"), size = 0.5) +
+    geom_vline(aes(xintercept = 0.05, linetype = "0.05"), size = 0.5) +
+
+    scale_linetype_manual(values = c("0.01" = "dashed",
+                                     "0.05" = "dotted"),
+                          name = "FDR cutoff") +
+  scale_color_discrete(name = "Adjusted p-value thresholds") +
+
+    xlim(0, 0.1) +
+    ylim(0.7, 1) +
+  
+    scale_x_continuous( breaks = seq(0, 0.1, 0.05)) +
+
+
+    theme_classic() +
+    theme(
+        legend.position = "bottom",
+        legend.box = "horizontal",
+        panel.spacing.x = unit(6, "mm")
+    ) +
+
+    labs(x = "False Discovery Rate",
+         y = "True Positive Rate")
+
+p
+
+```
+
+
+
+
+## Load data and results
+```{r}
+library(SpatialExperiment)
+library(STexampleData)
+library(ExperimentHub)
+library(BumpyMatrix)
+
+
+eh <- ExperimentHub()
+myfiles <- query(eh, "STexampleData")
+
+## keep only SpatialExperiment datasets
+idx <- which(md <- mcols(myfiles)$rdataclass == "SpatialExperiment")
+
+myfiles <- myfiles[idx]
+
+# metadata
+md <- as.data.frame(mcols(myfiles))
+
+dataset_info = data.frame()
+for(i in seq_along(myfiles)){
+
+    cat("Dataset", i, "\n")
+
+    spe <- tryCatch(
+        myfiles[[i]],
+        error = function(e){
+            message("Skipping ", names(myfiles)[i], ": ", e$message)
+            return(NULL)
+        }
+    )
+
+    if(is.null(spe)) next
+
+  count_in <- assay(spe)
+  #locus_in <- spatialCoords(spe)
+
+  dataset <- md$title[i] # names(myfiles)[i]
+  
+  dataset_info <- rbind(
+  dataset_info,
+  data.frame(
+    Dataset = dataset,
+    Spots = ncol(count_in),
+    Genes = nrow(count_in)
+  )
+)
+  
+}
+
+
+info_long <- rbind(
+  data.frame(
+    Dataset = dataset_info$Dataset,
+    Row = "# spots",
+    Value = format(dataset_info$Spots, big.mark = ",")
+  ),
+  data.frame(
+    Dataset = dataset_info$Dataset,
+    Row = "# genes",
+    Value = format(dataset_info$Genes, big.mark = ",")
+  )
+)
+
+p.info <-
+ggplot(info_long,
+       aes(Dataset, Row, label = Value)) +
+
+    geom_text(size = 3) +
+
+    theme_void() +
+    theme(
+      aspect.ratio = 0.05,
+      axis.text.x = element_blank(),
+      axis.text.y = element_text(size = 10),
+      plot.margin = margin(0,5,0,5)
+    )
+
+
+
+## load result 
+load("C:/Users/kakou/OneDrive - University of Iowa/BIOSTATISTICS/Disertation/STexample_benchmark_results_and_runtime.RData")
+
+```
+
+
+## Plot Computation Time from results
+
+```{r}
+## rank computation time
+rank_time <- do.call(rbind,
+  lapply(split(time.df, time.df$Dataset_name), function(x){
+
+    x$Rank <- rank(-x$Time)
+
+    x
+  })
+)
+
+# Compute mean rank per method for time
+method_order <- rank_time |> 
+  group_by(Method) |> 
+  summarise(mean_rank = mean(Rank)) |> 
+  arrange(desc(-mean_rank)) |> 
+  pull(Method)
+
+# Reorder Method factor based on mean rank for time
+rank_time$Method <- factor(rank_time$Method, levels = method_order)
+
+p1 <- ggplot(rank_time,
+             aes(Dataset_name,
+                 Method,
+                 size = Rank,
+                 fill = Rank)) +
+
+  geom_point(shape = 21, colour = "black") +
+  labs(y= NULL, x=NULL) +
+  scale_size(range = c(3, 7), name = "Rank") +
+  scale_fill_gradient(low = "skyblue", high = "red", name = "Rank") +
+
+  guides(
+    fill = guide_legend(
+      override.aes = list(
+        shape = 21,
+        colour = "black"
+      )
+    ),
+    size = guide_legend(
+      override.aes = list(
+        shape = 21,
+        colour = "black"
+      )
+    )
+  ) +
+
+  theme_classic() +
+  theme(
+    aspect.ratio = 0.15,
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    legend.position = "bottom",
+    legend.box = "horizontal"
+  )
+
+p1
+
+
+
+```
+
+
+
+```{r}
+p2 <- ggplot(time.df,
+             aes(Dataset_name, Time, fill = Method)) +
+geom_col(position = position_dodge(width = 0.5) , width = 0.5) +
+     scale_fill_discrete(name = "") +
+
+   labs( y= "Seconds",  x=NULL) +
+  
+  theme_classic() +
+  
+  theme(
+    aspect.ratio = 0.15,
+    axis.text.x = element_text(angle = 90, hjust = 1),
+    legend.position = "bottom",
+    legend.box = "horizontal"
+  )
+p2
+
+
+```
+
+```{r}
+library(ggbreak)
+library(patchwork)
+
+p.final <-
+  p.info /
+  p1 /
+  p2 +
+  plot_layout() 
+
+p.final
+
+ggsave(
+  "time_summary.pdf",
+  p.final,
+ #width = 5,
+ #height = 7   # instead of 7
+)
+
+```
+
+## Plot Computation Peak memory from results
+```{r}
+
+# rank computation memory
+rank_mem <- do.call(rbind,
+  lapply(split(memory.df, memory.df$Dataset_name), function(x){
+
+    x$Rank <- rank(-x$Memory)
+
+    x
+  })
+)
+
+
+# Compute mean rank per method for memory
+method_orderm <- rank_mem |> 
+  group_by(Method) |> 
+  summarise(mean_rank = mean(Rank)) |> 
+  arrange(desc(-mean_rank)) |> 
+  pull(Method)
+
+# Reorder Method factor based on mean rank for memory
+rank_mem$Method <- factor(rank_mem$Method, levels = method_orderm)
+
+
+p1m <- ggplot(rank_mem,
+             aes(Dataset_name,
+                 Method,
+                 size = Rank,
+                 fill = Rank)) +
+
+  geom_point(shape = 21, colour = "black") +
+     labs(y= NULL, x=NULL) +
+
+
+  scale_size(range = c(3, 7), name = "Rank") +
+  scale_fill_gradient(low = "skyblue", high = "red", name = "Rank") +
+
+  guides(
+    fill = guide_legend(
+      override.aes = list(
+        shape = 21,
+        colour = "black"
+      )
+    ),
+    size = guide_legend(
+      override.aes = list(
+        shape = 21,
+        colour = "black"
+      )
+    )
+  ) +
+
+  theme_classic() +
+  theme(
+    aspect.ratio = 0.15,
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    legend.position = "bottom",
+    legend.box = "horizontal"
+  )
+
+
+p1m
+```
+
+
+```{r}
+p2m <- ggplot(memory.df,
+             aes(Dataset_name, Memory, fill = Method)) +
+   geom_col(position = position_dodge(width = 0.5) , width = 0.5) +
+  scale_fill_discrete(name = "") +
+  labs( x= NULL, y = "GiB used") +
+  theme_classic() +
+  theme(
+    aspect.ratio = 0.15,
+    axis.text.x = element_text(angle = 90, hjust = 1),
+    legend.position = "bottom",
+    legend.box = "horizontal"
+  )
+
+p2m
+
+```
+
+
+```{r}
+
+## Combine the three panels
+p.finalm <-
+  p.info /
+  p1m /
+  p2m +
+  plot_layout()
+
+
+ggsave(
+  "memory_summary.pdf",
+  p.finalm,
+ #width = 5,
+ #height = 7   # instead of 7
+)
+p.finalm
+
+
+
+```
+
+
+```{r}
+
+all_results <-   c( results, results_STexample)
+
+corr.df <- data.frame()
+
+for(ds in names(all_results)){
+
+    dat <- all_results[[ds]]
+
+    ## ranking statistic
+    stat <- lapply(dat[methods], function(x){
+
+        z <- -log10(x)
+
+        z[!is.finite(z)] <- max(z[is.finite(z)]) + 1
+
+        z
+
+    })
+
+    for(anchor in methods){
+
+        for(other in methods){
+
+            if(anchor == other) next
+
+            rho <- cor(stat[[anchor]],
+                       stat[[other]],
+                       method = "spearman")
+
+            corr.df <- rbind(corr.df,
+
+                data.frame(
+                    Dataset = ds,
+                    Anchor = anchor,
+                    Compared = other,
+                    Spearman = rho
+                ))
+        }
+    }
+}
+
+
+
+corr.df$Anchor <- factor(
+    corr.df$Anchor,
+    levels = methods,
+    labels = c(  "svg.spline",
+                 "spark.x(wald)",
+                 "spark.x(score)",
+                 "Spark-X")
+)
+
+
+
+corr.df$Compared <- factor(
+    corr.df$Compared,
+    levels = methods,
+    labels = c(  "svg.spline",
+                 "spark.x(wald)",
+                 "spark.x(score)",
+                 "Spark-X")
+)
+
+
+corr.df$Compared <- as.character(corr.df$Compared)
+
+ggplot(corr.df,
+       aes(x = Compared,
+           y = Spearman,
+           fill = Compared)) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(width = 0.15, size = 2) +
+    facet_wrap(~Anchor, nrow = 2, scales = "free_x") +
+    scale_x_discrete(drop = TRUE) +
+    scale_fill_discrete(name = " ") +
+
+  labs(
+        x = " ",
+        y = "Pairwise Spearman's Correlation of SVG Rankings"    ) +
+    theme_classic()  +
+  theme(
+        legend.position = "bottom",
+        legend.box = "horizontal"
+    ) 
+
+```
+
+
+
+## P-value summary on real data
+
+```{r}
+p_summary <- pvalue_summary_all(all_results)
+
+
+short_names_syn <- c(
+  "Biancalani_et_al_Visium_brain"        = "Biancalani",
+  "Ferreira_et_al_Visium_kidney"         = "Ferreira",
+  "Janosevic_et_al_Visium_kidney"        = "Janosevic",
+  "Joglekar_et_al_Visium_brain"          = "Joglekar",
+  "Liu_et_al_DBiTseq_embryo_0628cL"      = "Liu-0628",
+  "Liu_et_al_DBiTseq_embryo_E11-2L"      = "Liu-E11",
+  "Lopez_et_al_Visium_MCA205"            = "Lopez",
+  "Wu_et_al_Visium_breastcancer_1"       = "Wu-1",
+  "Wu_et_al_Visium_breastcancer_2"       = "Wu-2"
+)
+
+short_names_realdata <- c(
+  "seqFISH_mouseEmbryo"               = "seqFISH",
+  "ST_mouseOB"                        = "ST-OB",
+  "SlideSeqV2_mouseHPC"               = "SlideSeqV2",
+  "Janesick_breastCancer_Xenium_rep1" = "Janesick-X1",
+  "Janesick_breastCancer_Xenium_rep2" = "Janesick-X2",
+  "CosMx_lungCancer"                  = "CosMx",
+  "MERSCOPE_ovarianCancer"            = "MERSCOPE",
+  "STARmapPLUS_mouseBrain"            = "STARmapPLUS",
+  "Visium_humanDLPFC"                 = "DLPFC",
+  "Visium_mouseCoronal"               = "mouseCoronal",
+  "Janesick_breastCancer_Visium"      = "Janesick-V"
+)
+
+short_names <- c(short_names_syn, short_names_realdata)
+
+p_summary$DatasetShort <- factor(
+  short_names[p_summary$Dataset],
+  levels = short_names
+)
+
+
+method_names <- c(
+  "Splines"     = "svg.spline",
+  "Wald"  = "spark.x(wald)",
+  "Score" = "spark.x(score)",
+  "SPARK-X"      = "Spark-X"
+)
+p_summary$Method <- factor(p_summary$Method,
+                            levels = names(method_names),
+                            labels = method_names)
+
+
+
+
+my_col <- c(
+  "#B2182B",
+  "#EF8A62",
+  "#FDDBC7",
+  "#D1E5F0",
+  "#2166AC"
+)
+
+
+# options(repr.plot.width = 12, repr.plot.height = 12)
+ggplot(p_summary,
+       aes(x = DatasetShort,
+           y = Percent,
+           fill = Category)) +
+
+  geom_col(position = "fill" ) + #, width = .9) +
+
+  facet_wrap(~Method, nrow = 1) +
+
+  scale_fill_manual(values = my_col) +
+
+  scale_y_continuous(labels = scales::percent_format()) +
+
+  labs(
+    x = "",
+    y = "% of SVGs and Non-SVG"
+  ) +
+
+  theme_classic() +
+  
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1),
+    strip.background = element_blank(),
+    strip.text = element_text(face = "bold"),
+    legend.position = "bottom"
+  )
+
+```
+
+## Upset Plots
+
+```{r}
+
+for(nm in names(all_results)){
+
+  print(
+    plotUpSet(all_results[[nm]], nm)
+  )
+
+}
+```
+
+## Venn Diagram
+
+```{r}
+
+for(nm in names(all_results)){
+  print(plotVenn(all_results[[nm]], nm))
+}
+
+```
+
+
+
+## Jaccard similarity heatmap
+
+```{r}
+library(pheatmap)
+
+pdf("Jaccard_heatmaps.pdf", width = 6, height = 6)
+
+for(nm in names(results))
+  plotJaccard(results[[nm]], nm)
+
+dev.off()
+
+
+```
+
+## 
+
+```{r}
+
+pdf("SVGbench_SVGs_compare.pdf",
+    width = 10,
+    height = 10)
+
+for(nm in names(results)){
+
+    dat <- results[[nm]]
+
+    svg <- dat[dat$is.de, ]
+
+    par(mfrow=c(1,4))
+
+    plotCompare(svg,
+                "p_spark_score",
+                "p_spark_wald",
+                main=paste(nm,"SVG"))
+
+    plotCompare(svg,
+                "p_spark_wald",
+                "p_splines",
+                main=paste(nm,"SVG"))
+
+    plotCompare(svg,
+                "p_spark_score",
+                "p_splines",
+                main=paste(nm,"SVG"))
+    
+     plotCompare(svg,
+                "p_SPARKX",
+                "p_spark_score",
+                main=paste(nm,"SVG"))
+    
+    
+
+}
+
+dev.off()
+```
+
+
+
+```{r}
+pdf("SVGbench_nonSVG_compare.pdf",
+    width = 10,
+    height = 10)
+
+for(nm in names(results)){
+
+    dat <- results[[nm]]
+
+    nonsvg <- dat[!dat$is.de, ]
+
+    par(mfrow=c(1,4))
+
+    plotCompare(nonsvg,
+                "p_spark_score",
+                "p_spark_wald",
+                main=paste(nm,"non-SVG"))
+
+    plotCompare(nonsvg,
+                "p_spark_wald",
+                "p_splines",
+                main=paste(nm,"non-SVG"))
+
+    plotCompare(nonsvg,
+                "p_spark_score",
+                "p_splines",
+                main=paste(nm,"non-SVG"))
+    
+    plotCompare(svg,
+                "p_SPARKX",
+                "p_spark_score",
+                main=paste(nm,"SVG"))
+
+}
+
+dev.off()
+```
+

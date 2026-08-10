@@ -257,13 +257,13 @@ p2 <- ggplot(time.df,
 geom_col(position = position_dodge(width = 0.5) , width = 0.5) +
      scale_fill_discrete(name = "") +
 
-   labs( y= "Seconds",  x=NULL) +
+   labs( y= "Second",  x=NULL) +
   
   theme_classic() +
   
   theme(
     aspect.ratio = 0.15,
-    axis.text.x = element_text(angle = 90, hjust = 1),
+    axis.text.x = element_text(angle = 45, hjust = 1),
     legend.position = "bottom",
     legend.box = "horizontal"
   )
@@ -284,10 +284,10 @@ p.final <-
 
 p.final
 
-# ggsave(
-#   "time_summary.pdf",
-#   p.final,
-# )
+ggsave(
+  "time_summary.png",
+  p.final,
+)
 
 ```
 
@@ -367,7 +367,7 @@ p2m <- ggplot(memory.df,
   theme_classic() +
   theme(
     aspect.ratio = 0.15,
-    axis.text.x = element_text(angle = 90, hjust = 1),
+    axis.text.x = element_text(angle = 45, hjust = 1),
     legend.position = "bottom",
     legend.box = "horizontal"
   )
@@ -389,10 +389,10 @@ p.finalm <-
 
 p.finalm
 
-# ggsave(
-#   "memory_summary.pdf",
-#   p.finalm,
-# )
+ggsave(
+  "memory_summary.pdf",
+  p.finalm,
+)
 
 ```
 

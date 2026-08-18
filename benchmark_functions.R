@@ -13,10 +13,13 @@ evaluate_svg <- function(results,
     
     dat <- results[[nm]]
     
-    methods <- c( "p_splines",
-                  "p_spark_wald",
-                  "p_spark_score",
-                  "p_SPARKX")
+    methods <- c( "p_Additive.Spline",
+                  "p_PreTSA",
+                  "p_Spline.Kernel" ,
+                  "p_Spark.Wald",
+                  "p_Spark.Score" ,
+                  "p_SPARKX" ) 
+    
     
     do.call(rbind,
             lapply(methods, function(m){
@@ -37,7 +40,7 @@ evaluate_svg <- function(results,
                 Power =
                   mean(reject[ dat$is.de ]),
                 
-                Type1 =
+                TypeI =
                   mean(reject[ !dat$is.de ]),
                 
                 stringsAsFactors = FALSE
@@ -90,12 +93,20 @@ compute_tpr_fdr <- function(dat,
 
 pvalue_summary_all <- function(results){
   
-  method_names <- c(
-    p_splines = "Splines",
-    p_spark_wald  = "Wald",
-    p_spark_score = "Score",
-    p_SPARKX = "SPARK-X"
-  )
+  method_names <- c( 
+    p_Additive.Spline = "Additive.Spline",
+    p_PreTSA = "PreTSA",
+    p_Spline.Kernel = "Spline.Kernel" ,
+    p_Spark.Wald = "spark.x(wald)",
+    p_Spark.Score = "spark.x(score)",
+    p_SPARKX = "SPARK-X" ) 
+  
+  # method_names <- c(
+  #   p_splines = "Splines",
+  #   p_spark_wald  = "Wald",
+  #   p_spark_score = "Score",
+  #   p_SPARKX = "SPARK-X"
+  # )
   
   out <- list()
   
@@ -151,30 +162,35 @@ pvalue_summary_all <- function(results){
 plotUpSet <- function(dat, dataset_name = "", alpha = 0.05){
   
   svg <- data.frame(
-    svg.splines    = p.adjust(dat$p_splines, "BY") < alpha, #& dat$is.de,
-    spark.x.wald    = p.adjust(dat$p_spark_wald, "BY") < alpha, #& dat$is.de,
-    spark.x.score   = p.adjust(dat$p_spark_score, "BY") < alpha, #& dat$is.de,
-    SPARKX  = p.adjust(dat$p_SPARKX, "BY") < alpha #& dat$is.de
+    Additive.Spline   = p.adjust(dat$p_Additive.Spline, "BY") < alpha, 
+    PreTSA  = p.adjust(dat$p_PreTSA, "BY") < alpha, 
+    Spline.Kernel    = p.adjust(dat$p_Spline.Kernel, "BY") < alpha, 
+    Wald    = p.adjust(dat$p_Spark.Wald, "BY") < alpha, 
+    Score   = p.adjust(dat$p_Spark.Score, "BY") < alpha, 
+    SPARKX  = p.adjust(dat$p_SPARKX, "BY") < alpha 
   )
   
   ComplexUpset::upset(
     svg,
-    intersect = c("svg.splines", "spark.x.wald", "spark.x.score", "SPARKX"),
+    intersect = c("Additive.Spline", "PreTSA","Spline.Kernel", "Wald", "Score", "SPARKX"),
     name = "SVGs"
   ) +
+    scale_fill_viridis_d(option = "C") +
     ggtitle(dataset_name)
 }
+
 
 plotVenn <- function(dat,
                      dataset_name = "",
                      alpha = 0.05){
-  
+
   sets <- list(
-    Splines = rownames(dat)[p.adjust(dat$p_splines, "BY") < alpha], 
-    Wald    = rownames(dat)[p.adjust(dat$p_spark_wald, "BY") < alpha],
-    Score   = rownames(dat)[p.adjust(dat$p_spark_score, "BY") < alpha],
-    SPARKX =  rownames(dat)[p.adjust(dat$p_SPARKX, "BY") < alpha]
-    
+    Additive.Spline   = rownames(dat)[p.adjust(dat$p_Additive.Spline, "BY") < alpha],
+     PreTSA  = rownames(dat)[p.adjust(dat$p_PreTSA, "BY") < alpha], 
+    Spline.Kernel    = rownames(dat)[p.adjust(dat$p_Spline.Kernel, "BY") < alpha],
+    # Wald    = rownames(dat)[p.adjust(dat$p_Spark.Wald, "BY") < alpha], 
+    # Score   = rownames(dat)[p.adjust(dat$p_Spark.Score, "BY") < alpha], 
+    SPARKX  = rownames(dat)[p.adjust(dat$p_SPARKX, "BY") < alpha] 
   )
   
   ggVennDiagram(sets, label_alpha = 0) +
@@ -194,10 +210,12 @@ plotJaccard <- function(dat,
   
   ## Significant genes
   svg <- list(
-    Splines = p.adjust(dat$p_splines, "BY") < alpha,
-    Wald    = p.adjust(dat$p_spark_wald, "BY") < alpha,
-    Score   = p.adjust(dat$p_spark_score, "BY") < alpha,
-    SPARKX  = p.adjust(dat$p_SPARKX, "BY") < alpha
+    Additive.Spline   = p.adjust(dat$p_Additive.Spline, "BY") < alpha, 
+    PreTSA  = p.adjust(dat$p_PreTSA, "BY") < alpha, 
+    Spline.Kernel    = p.adjust(dat$p_Spline.Kernel, "BY") < alpha, 
+    Wald    = p.adjust(dat$p_Spark.Wald, "BY") < alpha, 
+    Score   = p.adjust(dat$p_Spark.Score, "BY") < alpha, 
+    SPARKX  = p.adjust(dat$p_SPARKX, "BY") < alpha #& dat$is.de
   )
   
   methods <- names(svg)

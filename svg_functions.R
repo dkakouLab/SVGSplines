@@ -45,21 +45,16 @@ svg.spline <- function(count_in, locus_in, x_in = NULL, df = 5, block_size = NUL
   p <- ncol(Z)
   ngenes <- nrow(count_in)
 
-  ## -------------------------------
   ## Automatic block size rule
-  ## -------------------------------
   if (is.null(block_size)) {
     if (ngenes > 20000 ) {
       block_size <- 5000   # larger block for large matrices
     } else {
       block_size <- 1000   # default
     }
-    # message(sprintf("Auto-selected block_size = %d", block_size))
   }
   
-  ## -------------------------------
   ## Main computation
-  ## -------------------------------
   stat <- numeric(ngenes)
   starts <- seq(1, ngenes, by = block_size)
   
@@ -96,6 +91,229 @@ svg.spline <- function(count_in, locus_in, x_in = NULL, df = 5, block_size = NUL
     p.adj = p.adjust(pval, "BY"),
     row.names = NULL
   )
+}
+
+
+# B-spline interaction
+
+svg.spline.int <- function(count_in, locus_in, x_in = NULL, df = 5, block_size = NULL){
+  
+  ## Packages
+  require(Matrix)
+  require(splines)
+  
+  ## Convert to sparse only if needed
+  if (!inherits(count_in, "dgCMatrix"))
+    count_in <- Matrix(count_in, sparse = TRUE)
+  
+  ## Remove empty spots
+  keep_spot <- Matrix::colSums(count_in) > 0
+  count_in <- count_in[, keep_spot, drop = FALSE]
+  locus_in <- locus_in[keep_spot,,drop=FALSE]
+  
+  if(!is.null(x_in))
+    x_in <- x_in[keep_spot,,drop=FALSE]
+  
+  ## Remove genes with zero counts
+  keep_gene <- Matrix::rowSums(count_in) > 0
+  count_in <- count_in[keep_gene,,drop=FALSE]
+  gene_names <- rownames(count_in)
+  
+
+  ## Spline basis
+  z1 <- bs(locus_in[,1], df=df)
+  z2 <- bs(locus_in[,2], df=df)
+  
+  Z = model.matrix(~ -1 + z1 * z2)   # a new line added to spark.bs function
+  Z <- sweep(Z, 2, colMeans(Z), FUN = "-") # another new line
+  
+  if(!is.null(x_in))
+    Z <- cbind(x_in, Z)
+  
+  ## Precompute
+  cholXtX <- chol(crossprod(Z))
+  n <- nrow(Z)
+  p <- ncol(Z)
+  ngenes <- nrow(count_in)
+  
+  ## Automatic block size rule
+  if (is.null(block_size)) {
+    if (ngenes > 20000 ) {
+      block_size <- 5000   # larger block for large matrices
+    } else {
+      block_size <- 1000   # default
+    }
+  }
+  
+  ## Main computation
+  stat <- numeric(ngenes)
+  starts <- seq(1, ngenes, by = block_size)
+  
+  for(k in seq_along(starts)) {
+    
+    s <- starts[k]
+    e <- min(s + block_size - 1, ngenes)
+    
+    block <- count_in[s:e,,drop=FALSE]
+    XtY <- t(block %*% Z)
+    
+    beta <- backsolve(
+      cholXtX,
+      forwardsolve(t(cholXtX), XtY)
+    )
+    
+    SSR <- colSums(beta * XtY)
+    sy <- Matrix::rowSums(block)
+    sy2 <- Matrix::rowSums(block^2)
+    SST <- sy2 - sy^2/n
+    
+    stat[s:e] <- n * SSR / pmax(SST - SSR, .Machine$double.eps)
+    
+    if(k %% 20 == 0)
+      gc(FALSE)
+  }
+  
+  pval <- pchisq(stat, df = p, lower.tail = FALSE)
+  
+  data.frame(
+    gene = gene_names,
+    stat = stat,
+    pvalue = pval,
+    p.adj = p.adjust(pval, "BY"),
+    row.names = NULL
+  )
+}
+
+
+
+# B-spline kernel
+
+spline.kernel <- function(count_in, locus_in, x_in = NULL, df = 5) {
+  
+  ## count_in = genes x spots
+  ## locus_in = spots x 2
+
+  ## Packages
+  require(Matrix)
+  require(splines)
+  
+  if (!is.matrix(count_in) && !inherits(count_in, "sparseMatrix")) {
+    stop(
+      "count_in must be a matrix or sparseMatrix."
+    )
+  }
+  
+  ## Convert to sparse only if needed
+  if (!inherits(count_in, "dgCMatrix"))
+    count_in <- Matrix(count_in, sparse = TRUE)
+  
+  ## Remove empty spots
+  keep_spot <- Matrix::colSums(count_in) > 0
+  count_in <- count_in[, keep_spot, drop = FALSE]
+  locus_in <- locus_in[keep_spot,,drop=FALSE]
+  
+  if(!is.null(x_in))
+    x_in <- x_in[keep_spot,,drop=FALSE]
+  
+  ## Remove genes with zero counts
+  keep_gene <- Matrix::rowSums(count_in) > 0
+  count_in <- count_in[keep_gene,,drop=FALSE]
+  gene_names <- rownames(count_in)
+  
+    ## Preserve gene names
+
+  gene_names <- rownames(count_in)
+  
+  if (is.null(gene_names)) {
+    gene_names <- paste0(
+      "gene_",
+      seq_len(nrow(count_in))
+    )
+  }
+  
+    ## Spline basis
+  z1 <- splines::bs(locus_in[, 1], df = df)
+  z2 <- splines::bs(locus_in[, 2], df = df)
+  
+  Z <- cbind(z1, z2)
+  
+  Z <- sweep(Z, 2,  colMeans(Z), "-")
+  
+  rm(z1, z2)
+  
+  if(!is.null(x_in))
+    Z <- cbind(x_in, Z)
+  
+
+  ## Eigenvalues
+  lambda <- eigen(
+    crossprod(Z),
+    symmetric = TRUE,
+    only.values = TRUE
+  )$values
+  
+  
+  ## Instead of:
+  ## Y <- t(count_in)
+  ## Y <- scale(Y)
+  ## calculate the equivalent standardized cross-product
+  ## without creating the huge dense Y matrix.
+  n <- ncol(count)
+  
+  ## Gene means
+  gene_sum <- Matrix::rowSums(count)
+  gene_mean <- gene_sum / n
+
+  ## Gene sum of squares
+  gene_sum_sq <- Matrix::rowSums( count^2 )
+  
+  ## scale() uses:
+  ## sqrt(sum((x - mean(x))^2) / (n - 1))
+  gene_ss <- gene_sum_sq - n * gene_mean^2
+  gene_sd <- sqrt(gene_ss / (n - 1) )
+  
+  ## Calculate Z'X'
+  ZtX <- crossprod( Z, t(count))
+  
+  
+  ## Because Z is centered:
+  ## Z' (X - mean(X)) = Z'X
+  ## Therefore we only need to divide by the gene SD.
+
+  ZtY <- sweep( ZtX, 2, gene_sd, "/" )
+  
+  stat <- colSums(ZtY * ZtY)
+  
+  
+
+  ## Davies p-values
+  pvalue <- vapply(stat, function(s) {
+      
+      davies( s,lambda = lambda)$Qq
+    },
+    numeric(1)
+  )
+  
+  ## Output 
+  result <- data.frame(
+    gene = gene_names,
+    stat = stat,
+    pvalue = pvalue,
+    p.adj = p.adjust(
+      pvalue,
+      method = "BY"
+    )
+  )
+  
+  rownames(result) <- gene_names
+  
+    ## Cleanup
+
+  rm( count, Z, ZtX, ZtY, gene_sum, gene_mean, gene_sum_sq, gene_ss, gene_sd)
+  
+  gc(FALSE)
+  
+  result
 }
 
 

@@ -22,10 +22,12 @@ results <- readRDS("C:/Users/kakou/OneDrive - University of Iowa/BIOSTATISTICS/D
 
 source("benchmark_functions.R")
 
-methods <- c("p_splines",
-             "p_spark_wald",
-             "p_spark_score",
-             "p_SPARKX")
+methods <- c( "p_Additive.Spline",
+              "p_PreTSA",
+              "p_Spline.Kernel",
+              "p_Spark.Wald",
+              "p_Spark.Score" ,
+              "p_SPARKX" ) 
 
 perf_curve <- do.call(rbind,
 
@@ -46,14 +48,15 @@ perf_curve <- do.call(rbind,
 
     }))
 
-perf_curve$DatasetID <- factor(rep(1:9, each = 12))
+perf_curve$DatasetID <- factor(rep(1:9, each = 18))
 
-method_names <- c(
-  "p_splines"     = "svg.spline",
-  "p_spark_wald"  = "spark.x(wald)",
-  "p_spark_score" = "spark.x(score)",
-  "p_SPARKX"      = "Spark-X"
-)
+method_names <- c( 
+  "p_Additive.Spline" = "Additive.Spline",
+      "p_PreTSA" = "PreTSA",
+      "p_Spline.Kernel" = "Spline.Kernel" ,
+      "p_Spark.Wald" = "spark.x(wald)",
+      "p_Spark.Score" = "spark.x(score)",
+      "p_SPARKX"= "SPARK-X" ) 
 
 perf_curve$Method <- factor(perf_curve$Method,
                             levels = names(method_names),
@@ -64,23 +67,30 @@ p = ggplot(perf_curve,
        aes(FDR, TPR, color = Cutoff)) +
 
     geom_point(size = 3) +
-  geom_text(aes(label = DatasetID), color = "black", size = 2,vjust = 0.3) +
-  
-    facet_wrap(~Method, ncol = 4) +
+    geom_text(aes(label = DatasetID), color = "black", size = 2, vjust = 0.3) +
+
+    facet_wrap(~Method, ncol = 6) +
 
     geom_vline(aes(xintercept = 0.01, linetype = "0.01"), linewidth = 0.5) +
     geom_vline(aes(xintercept = 0.05, linetype = "0.05"), linewidth = 0.5) +
+    geom_vline(aes(xintercept = 0.10, linetype = "0.10"), linewidth = 0.5) +
 
-    scale_linetype_manual(values = c("0.01" = "dashed",
-                                     "0.05" = "dotted"),
-                          name = "FDR cutoff") +
-  scale_color_discrete(name = "Adjusted p-value thresholds") +
+    scale_linetype_manual(
+        values = c(
+            "0.01" = "dotted",
+            "0.05" = "dotted",
+            "0.10" = "dotted"   
+        ),
+        name = "FDR cutoff"
+    ) +
+    
+  guides(linetype = "none") +
+
+    scale_color_discrete(name = "Benjamini-Yekutieli adjusted p-value thresholds") +
 
     xlim(0, 0.1) +
     ylim(0.7, 1) +
-  
-    scale_x_continuous( breaks = seq(0, 0.1, 0.05)) +
-
+    scale_x_continuous(breaks = seq(0, 0.1, 0.05)) +
 
     theme_classic() +
     theme(
@@ -92,12 +102,10 @@ p = ggplot(perf_curve,
     labs(x = "False Discovery Rate",
          y = "True Positive Rate")
 
+
 p
 
 ```
-
-
-
 
 ## Load data and results
 ```{r}
@@ -188,6 +196,7 @@ load("C:/Users/kakou/OneDrive - University of Iowa/BIOSTATISTICS/Disertation/STe
 ## Plot Computation Time from results
 
 ```{r}
+library(tidyverse)
 ## rank computation time
 rank_time <- do.call(rbind,
   lapply(split(time.df, time.df$Dataset_name), function(x){
@@ -216,21 +225,19 @@ p1 <- ggplot(rank_time,
 
   geom_point(shape = 21, colour = "black") +
   labs(y= NULL, x=NULL) +
-  scale_size(range = c(3, 7), name = "Rank") +
-  scale_fill_gradient(low = "skyblue", high = "red", name = "Rank") +
+  scale_size(range = c(3, 8), name = "Rank") +
+  scale_fill_gradient(low = "red", high = "green", name = "Rank") +
 
   guides(
     fill = guide_legend(
+      nrow = 1,
       override.aes = list(
         shape = 21,
         colour = "black"
       )
     ),
     size = guide_legend(
-      override.aes = list(
-        shape = 21,
-        colour = "black"
-      )
+      nrow = 1
     )
   ) +
 
@@ -246,7 +253,6 @@ p1 <- ggplot(rank_time,
 p1
 
 
-
 ```
 
 
@@ -254,19 +260,28 @@ p1
 ```{r}
 p2 <- ggplot(time.df,
              aes(Dataset_name, Time, fill = Method)) +
-geom_col(position = position_dodge(width = 0.5) , width = 0.5) +
-     scale_fill_discrete(name = "") +
+  geom_col(position = position_dodge(width = 0.8), width = 0.8) +
+  scale_fill_discrete(name = "") +
 
-   labs( y= "Second",  x=NULL) +
+  guides(
+    fill = guide_legend(
+      nrow = 1,
+      override.aes = list(
+        alpha = 1
+      )
+    )
+  ) +
+
+  labs(y = "Second", x = NULL) +
   
   theme_classic() +
-  
   theme(
     aspect.ratio = 0.15,
-    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.x = element_text(angle = 30, hjust = 1),
     legend.position = "bottom",
     legend.box = "horizontal"
   )
+
 p2
 
 
@@ -284,10 +299,16 @@ p.final <-
 
 p.final
 
+
 ggsave(
-  "time_summary.png",
+  "time_summary.pdf",
   p.final,
+  width = 11,
+  height = 8,
+  units = "in",
+  dpi = 300
 )
+
 
 ```
 
@@ -303,6 +324,7 @@ rank_mem <- do.call(rbind,
     x
   })
 )
+
 
 
 # Compute mean rank per method for memory
@@ -326,21 +348,19 @@ p1m <- ggplot(rank_mem,
      labs(y= NULL, x=NULL) +
 
 
-  scale_size(range = c(3, 7), name = "Rank") +
-  scale_fill_gradient(low = "skyblue", high = "red", name = "Rank") +
+  scale_size(range = c(3, 8), name = "Rank") +
+  scale_fill_gradient(low = "red", high = "green", name = "Rank") +
 
   guides(
     fill = guide_legend(
+      nrow= 1,
       override.aes = list(
         shape = 21,
         colour = "black"
       )
     ),
     size = guide_legend(
-      override.aes = list(
-        shape = 21,
-        colour = "black"
-      )
+      nrow= 1,
     )
   ) +
 
@@ -361,16 +381,26 @@ p1m
 ```{r}
 p2m <- ggplot(memory.df,
              aes(Dataset_name, Memory, fill = Method)) +
-   geom_col(position = position_dodge(width = 0.5) , width = 0.5) +
+   geom_col(position = position_dodge(width = 0.8) , width = 0.8) +
   scale_fill_discrete(name = "") +
+  guides(
+    fill = guide_legend(
+      nrow = 1,
+      override.aes = list(
+        alpha = 1
+      )
+    )
+  ) +
   labs( x= NULL, y = "GiB used") +
   theme_classic() +
   theme(
     aspect.ratio = 0.15,
-    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.x = element_text(angle = 30, hjust = 1),
     legend.position = "bottom",
     legend.box = "horizontal"
   )
+
+
 
 p2m
 
@@ -389,11 +419,15 @@ p.finalm <-
 
 p.finalm
 
+
 ggsave(
   "memory_summary.pdf",
   p.finalm,
+  width = 11,
+  height = 8,
+  units = "in",
+  dpi = 300
 )
-
 ```
 
 
@@ -441,11 +475,18 @@ for(ds in names(all_results)){
 }
 
 
-
+methods <- c( "p_Additive.Spline",
+                  "p_PreTSA",
+      "p_Spline.Kernel" ,
+      "p_Spark.Wald",
+      "p_Spark.Score" ,
+      "p_SPARKX" ) 
 corr.df$Anchor <- factor(
     corr.df$Anchor,
     levels = methods,
-    labels = c(  "svg.spline",
+    labels = c(  "Additive.Spline",
+                 "PreTSA",
+                 "Spline.Kernel",
                  "spark.x(wald)",
                  "spark.x(score)",
                  "Spark-X")
@@ -456,7 +497,9 @@ corr.df$Anchor <- factor(
 corr.df$Compared <- factor(
     corr.df$Compared,
     levels = methods,
-    labels = c(  "svg.spline",
+    labels = c(  "Additive.Spline",
+                 "PreTSA",
+                 "Spline.Kernel",
                  "spark.x(wald)",
                  "spark.x(score)",
                  "Spark-X")
@@ -528,19 +571,6 @@ p_summary$DatasetShort <- factor(
 )
 
 
-method_names <- c(
-  "Splines"     = "svg.spline",
-  "Wald"  = "spark.x(wald)",
-  "Score" = "spark.x(score)",
-  "SPARK-X"      = "Spark-X"
-)
-p_summary$Method <- factor(p_summary$Method,
-                            levels = names(method_names),
-                            labels = method_names)
-
-
-
-
 my_col <- c(
   "#B2182B",
   "#EF8A62",
@@ -556,8 +586,8 @@ ggplot(p_summary,
            y = Percent,
            fill = Category)) +
 
-  geom_col(position = "fill" ) + #, width = .9) +
-
+  geom_col(position = "fill") + # , width = .5) +
+  
   facet_wrap(~Method, nrow = 1) +
 
   scale_fill_manual(values = my_col) +
@@ -613,9 +643,9 @@ library(pheatmap)
 
 #pdf("Jaccard_heatmaps.pdf", width = 6, height = 6)
 
-for(nm in names(results))
+for(nm in names(results)){
   plotJaccard(results[[nm]], nm)
-
+}
 #dev.off()
 
 
@@ -669,9 +699,7 @@ dev.off()
 
 
 ```{r}
-pdf("SVGbench_nonSVG_compare.pdf",
-    width = 10,
-    height = 10)
+#pdf("SVGbench_nonSVG_compare.pdf", width = 10,height = 10)
 
 for(nm in names(results)){
 
@@ -682,27 +710,27 @@ for(nm in names(results)){
     par(mfrow=c(1,4))
 
     plotCompare(nonsvg,
-                "p_spark_score",
-                "p_spark_wald",
+                "p_Additive.Spline",
+                "p_PreTSA",
                 main=paste(nm,"non-SVG"))
 
     plotCompare(nonsvg,
-                "p_spark_wald",
-                "p_splines",
+                "p_Additive.Spline",
+                "p_Spline.Kernel",
                 main=paste(nm,"non-SVG"))
 
     plotCompare(nonsvg,
-                "p_spark_score",
-                "p_splines",
+                "p_Additive.Spline",
+                "p_SPARKX",
                 main=paste(nm,"non-SVG"))
     
-    plotCompare(svg,
+    plotCompare(nonsvg,
                 "p_SPARKX",
-                "p_spark_score",
-                main=paste(nm,"SVG"))
+                "p_Spark.Score",
+                main=paste(nm,"non-SVG"))
 
 }
 
-dev.off()
+#dev.off()
 ```
 

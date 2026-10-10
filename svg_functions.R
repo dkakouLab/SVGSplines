@@ -904,6 +904,10 @@ svg.spline.kernel.cct <- function(
   p1 <- res_svg$pvalue
   p2 <- res_kernel$pvalue
   
+  stat1 <- res_svg$stat
+  stat2 <- res_kernel$stat
+  stat = mean(c(stat1, stat2))
+  
     ## Combine p-values using ACAT package
   p_acat <- vapply(
     seq_along(p1),
@@ -946,65 +950,13 @@ svg.spline.kernel.cct <- function(
     gene = res_svg$gene,
     p_svg_spline = p1,
     p_spline_kernel = p2,
+    stat = stat,
     pvalue = p_acat,
     p.adj = p_adj,
     row.names = NULL
   )
 }
 
-# svg.spline.kernel.cct <- function(
-#     count_in,
-#     locus_in,
-#     x_in = NULL,
-#     df = 5
-# ) {
-#     ## Run SVG-Spline
-#   res_svg <- svg.spline(
-#     count_in = count_in,
-#     locus_in = locus_in,
-#     x_in = x_in,
-#     df = df
-#   )
-#   
-#     ## Run spline kernel
-#   res_kernel <- spline.kernel(
-#     count_in = count_in,
-#     locus_in = locus_in,
-#     x_in = x_in,
-#     df = df
-#   )
-#   
-#   
-#  
-#   ## Combine p-values
-#   p1 <- res_svg$pvalue
-#   p2 <- res_kernel$pvalue
-#   
-#   pmat <- cbind(
-#     p1,
-#     p2
-#   )
-#   
-#   p_acat <- apply(
-#     pmat,
-#     1,
-#     acat_combine
-#   )
-#   
-#     ## Output
-#   
-#   data.frame(
-#     gene = res_svg$gene,
-#     p_svg_spline = p1,
-#     p_spline_kernel = p2,
-#     pvalue = p_acat,
-#     p.adj = p.adjust(
-#       p_acat,
-#       method = "BY"
-#     ),
-#     row.names = NULL
-#   )
-# }
 
 
 # symmetric transformation -------------------------------
@@ -1636,6 +1588,406 @@ spark.x <- function(count_in, locus_in, x_in = NULL,
   )
 }
 
+
+
+
+
+
+# CTSVG Functions  
+
+## ctsvg for B-spline  -----------------------------------
+
+ctsvg.spline <- function(
+    count_in,
+    locus_in,
+    cluster,
+    x_in = NULL,
+    df = 5,
+    block_size = NULL,
+    min_cells = 50
+) {
+  
+  
+  ## Input checks
+  
+  if (!is.matrix(count_in) &&
+      !inherits(count_in, "sparseMatrix")) {
+    stop(
+      "count_in must be a matrix or sparseMatrix."
+    )
+  }
+  
+  if (ncol(count_in) != nrow(locus_in)) {
+    stop(
+      "ncol(count_in) must equal nrow(locus_in)."
+    )
+  }
+  
+  if (length(cluster) != ncol(count_in)) {
+    stop(
+      "length(cluster) must equal ncol(count_in)."
+    )
+  }
+  
+  if (anyNA(cluster)) {
+    stop(
+      "cluster contains NA values."
+    )
+  }
+  
+  
+  ## Identify clusters
+  cluster <- as.character(cluster)
+  
+  clusters <- unique(cluster)
+  
+  clusters <- clusters[
+    !is.na(clusters)
+  ]
+  
+  
+  ## Output list
+  
+  results <- vector(
+    "list",
+    length(clusters)
+  )
+  
+  names(results) <- clusters
+  
+  
+  ## Run SVG-Spline independently within each cluster
+  
+  for (cl in clusters) {
+    
+    cat(
+      "\n========================================\n"
+    )
+    
+    cat(
+      "Cluster:",
+      cl,
+      "\n"
+    )
+    
+    cat(
+      "========================================\n"
+    )
+    
+    
+    
+    ## Select cells/spots
+    
+    keep <- cluster == cl
+    
+    n_cluster <- sum(keep)
+    
+    cat(
+      "Number of cells/spots:",
+      n_cluster,
+      "\n"
+    )
+    
+    
+    ## Minimum cluster size
+    
+    if (n_cluster < min_cells) {
+      
+      warning(
+        paste0(
+          "Skipping cluster '",
+          cl,
+          "' because it contains only ",
+          n_cluster,
+          " cells/spots."
+        )
+      )
+      
+      results[[cl]] <- NULL
+      
+      next
+    }
+    
+    
+    ## Subset counts
+    
+    count_cl <- count_in[
+      ,
+      keep,
+      drop = FALSE
+    ]
+    
+    
+    ## Subset coordinates
+    
+    locus_cl <- locus_in[
+      keep,
+      ,
+      drop = FALSE
+    ]
+    
+    
+    ## Subset covariates
+    
+    if (!is.null(x_in)) {
+      
+      x_cl <- x_in[
+        keep,
+        ,
+        drop = FALSE
+      ]
+      
+    } else {
+      
+      x_cl <- NULL
+      
+    }
+    
+    ## Run Spark-Spline
+    res <- svg.spline(
+      count_in = count_cl,
+      locus_in = locus_cl,
+      x_in = x_cl,
+      df = df    )
+    
+    ## Add cluster information
+    
+    res$cluster <- cl
+    
+    res$n_cells <- n_cluster
+    
+    ## Reorder columns
+    
+    res <- res[
+      ,
+      c(
+        "cluster",
+        "n_cells",
+        "gene",
+        "stat",
+        "pvalue",
+        "p.adj"
+      )
+    ]
+    
+    
+    ## Store
+    results[[cl]] <- res
+    
+    ## Cleanup
+    rm(
+      count_cl,
+      locus_cl,
+      x_cl,
+      res
+    )
+    
+    gc(FALSE)
+  }
+  
+  results
+}
+
+
+
+
+
+
+
+
+
+## ctsvg for B-spline + Kernel cct --------------------------
+
+ctsvg.spline.kernel.cct <- function(
+    count_in,
+    locus_in,
+    cluster,
+    x_in = NULL,
+    df = 5,
+    block_size = NULL,
+    min_cells = 50
+) {
+  
+  
+  ## Input checks
+  
+  if (!is.matrix(count_in) &&
+      !inherits(count_in, "sparseMatrix")) {
+    stop(
+      "count_in must be a matrix or sparseMatrix."
+    )
+  }
+  
+  if (ncol(count_in) != nrow(locus_in)) {
+    stop(
+      "ncol(count_in) must equal nrow(locus_in)."
+    )
+  }
+  
+  if (length(cluster) != ncol(count_in)) {
+    stop(
+      "length(cluster) must equal ncol(count_in)."
+    )
+  }
+  
+  if (anyNA(cluster)) {
+    stop(
+      "cluster contains NA values."
+    )
+  }
+  
+  
+  ## Identify clusters
+  cluster <- as.character(cluster)
+  
+  clusters <- unique(cluster)
+  
+  clusters <- clusters[
+    !is.na(clusters)
+  ]
+  
+  
+  ## Output list
+  
+  results <- vector(
+    "list",
+    length(clusters)
+  )
+  
+  names(results) <- clusters
+  
+  
+  ## Run SVG-Spline independently within each cluster
+  
+  for (cl in clusters) {
+    
+    cat(
+      "\n========================================\n"
+    )
+    
+    cat(
+      "Cluster:",
+      cl,
+      "\n"
+    )
+    
+    cat(
+      "========================================\n"
+    )
+    
+    
+    
+    ## Select cells/spots
+    
+    keep <- cluster == cl
+    
+    n_cluster <- sum(keep)
+    
+    cat(
+      "Number of cells/spots:",
+      n_cluster,
+      "\n"
+    )
+    
+    
+    ## Minimum cluster size
+    
+    if (n_cluster < min_cells) {
+      
+      warning(
+        paste0(
+          "Skipping cluster '",
+          cl,
+          "' because it contains only ",
+          n_cluster,
+          " cells/spots."
+        )
+      )
+      
+      results[[cl]] <- NULL
+      
+      next
+    }
+    
+    
+    ## Subset counts
+    
+    count_cl <- count_in[
+      ,
+      keep,
+      drop = FALSE
+    ]
+    
+    
+    ## Subset coordinates
+    
+    locus_cl <- locus_in[
+      keep,
+      ,
+      drop = FALSE
+    ]
+    
+    
+    ## Subset covariates
+    
+    if (!is.null(x_in)) {
+      
+      x_cl <- x_in[
+        keep,
+        ,
+        drop = FALSE
+      ]
+      
+    } else {
+      
+      x_cl <- NULL
+      
+    }
+    
+    ## Run Spark-Spline
+    res <- svg.spline.kernel.cct(
+      count_in = count_cl,
+      locus_in = locus_cl,
+      x_in = x_cl,
+      df = df    )
+    
+    ## Add cluster information
+    
+    res$cluster <- cl
+    
+    res$n_cells <- n_cluster
+    
+    ## Reorder columns
+    
+    res <- res[
+      ,
+      c(
+        "cluster",
+        "n_cells",
+        "gene",
+        "stat",
+        "pvalue",
+        "p.adj"
+      )
+    ]
+    
+    
+    ## Store
+    results[[cl]] <- res
+    
+    ## Cleanup
+    rm(
+      count_cl,
+      locus_cl,
+      x_cl,
+      res
+    )
+    
+    gc(FALSE)
+  }
+  
+  results
+}
 
 
 
